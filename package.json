@@ -29,7 +29,6 @@
     "@actions/exec": "^1.1.1",
     "@actions/github": "^2.2.0",
     "@octokit/webhooks": "^7.6.2",
-    "axios": "^1.6.2",
     "picomatch": "^2.2.2"
   }
 }
