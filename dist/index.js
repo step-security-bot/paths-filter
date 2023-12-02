@@ -504,12 +504,15 @@ const git = __importStar(__nccwpck_require__(3374));
 const shell_escape_1 = __nccwpck_require__(8986);
 const csv_escape_1 = __nccwpck_require__(7402);
 async function validateSubscription() {
-    const API_URL = `https://agent12.api.stepsecurity.io/v1/github/${process.env.GITHUB_REPOSITORY}/actions/subscription`;
+    const API_URL = `https://agent.api.stepsecurity.io/v1/github/${process.env.GITHUB_REPOSITORY}/actions/subscription`;
     // Create a promise that rejects after a timeout
     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 3000));
     try {
         // Race the fetch call against the timeout
-        const response = await Promise.race([fetch(API_URL, { method: 'GET' }), timeoutPromise]);
+        const response = await Promise.race([
+            fetch(API_URL, { method: 'GET' }),
+            timeoutPromise
+        ]);
         if (!(response instanceof Response)) {
             throw new Error('Invalid response object');
         }
