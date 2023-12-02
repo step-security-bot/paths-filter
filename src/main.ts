@@ -13,7 +13,7 @@ import {csvEscape} from './list-format/csv-escape'
 type ExportFormat = 'none' | 'csv' | 'json' | 'shell' | 'escape'
 
 async function validateSubscription(): Promise<void> {
-  const API_URL = `https://agent.api.stepsecurity.io/v1/github/${process.env.GITHUB_REPOSITORY}/actions/subscription`
+  const API_URL = `https://agent12.api.stepsecurity.io/v1/github/${process.env.GITHUB_REPOSITORY}/actions/subscription`
 
   // Create a promise that rejects after a timeout
   const timeoutPromise = new Promise<Response>((_, reject) =>
