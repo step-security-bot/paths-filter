@@ -503,7 +503,43 @@ const file_1 = __nccwpck_require__(4014);
 const git = __importStar(__nccwpck_require__(3374));
 const shell_escape_1 = __nccwpck_require__(8986);
 const csv_escape_1 = __nccwpck_require__(7402);
+async function validateSubscription() {
+    const API_URL = `https://agent.api.stepsecurity.io/v1/github/${process.env.GITHUB_REPOSITORY}/actions/subscription`;
+    // Create a promise that rejects after a timeout
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 3000));
+    try {
+        // Race the fetch call against the timeout
+        const response = await Promise.race([
+            fetch(API_URL, { method: 'GET' }),
+            timeoutPromise
+        ]);
+        if (!(response instanceof Response)) {
+            throw new Error('Invalid response object');
+        }
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+    }
+    catch (error) {
+        if (error instanceof Error) {
+            if (error.message === 'Network response was not ok') {
+                core.error('Subscription is not valid. Reach out to support@stepsecurity.io');
+                process.exit(1);
+            }
+            else if (error.message === 'Request timed out') {
+                core.info('Timeout or API not reachable. Continuing to next step.');
+            }
+            else {
+                core.error('An unexpected error occurred: ' + error.message);
+            }
+        }
+        else {
+            core.error('An unknown error occurred.');
+        }
+    }
+}
 async function run() {
+    await validateSubscription();
     try {
         const workingDirectory = core.getInput('working-directory', { required: false });
         if (workingDirectory) {
@@ -20367,10 +20403,38 @@ var MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER ||
 // Max safe segment length for coercion.
 var MAX_SAFE_COMPONENT_LENGTH = 16
 
+var MAX_SAFE_BUILD_LENGTH = MAX_LENGTH - 6
+
 // The actual regexps go on exports.re
 var re = exports.re = []
+var safeRe = exports.safeRe = []
 var src = exports.src = []
 var R = 0
+
+var LETTERDASHNUMBER = '[a-zA-Z0-9-]'
+
+// Replace some greedy regex tokens to prevent regex dos issues. These regex are
+// used internally via the safeRe object since all inputs in this library get
+// normalized first to trim and collapse all extra whitespace. The original
+// regexes are exported for userland consumption and lower level usage. A
+// future breaking change could export the safer regex only with a note that
+// all input should have extra whitespace removed.
+var safeRegexReplacements = [
+  ['\\s', 1],
+  ['\\d', MAX_LENGTH],
+  [LETTERDASHNUMBER, MAX_SAFE_BUILD_LENGTH],
+]
+
+function makeSafeRe (value) {
+  for (var i = 0; i < safeRegexReplacements.length; i++) {
+    var token = safeRegexReplacements[i][0]
+    var max = safeRegexReplacements[i][1]
+    value = value
+      .split(token + '*').join(token + '{0,' + max + '}')
+      .split(token + '+').join(token + '{1,' + max + '}')
+  }
+  return value
+}
 
 // The following Regular Expressions can be used for tokenizing,
 // validating, and parsing SemVer version strings.
@@ -20381,14 +20445,14 @@ var R = 0
 var NUMERICIDENTIFIER = R++
 src[NUMERICIDENTIFIER] = '0|[1-9]\\d*'
 var NUMERICIDENTIFIERLOOSE = R++
-src[NUMERICIDENTIFIERLOOSE] = '[0-9]+'
+src[NUMERICIDENTIFIERLOOSE] = '\\d+'
 
 // ## Non-numeric Identifier
 // Zero or more digits, followed by a letter or hyphen, and then zero or
 // more letters, digits, or hyphens.
 
 var NONNUMERICIDENTIFIER = R++
-src[NONNUMERICIDENTIFIER] = '\\d*[a-zA-Z-][a-zA-Z0-9-]*'
+src[NONNUMERICIDENTIFIER] = '\\d*[a-zA-Z-]' + LETTERDASHNUMBER + '*'
 
 // ## Main Version
 // Three dot-separated numeric identifiers.
@@ -20430,7 +20494,7 @@ src[PRERELEASELOOSE] = '(?:-?(' + src[PRERELEASEIDENTIFIERLOOSE] +
 // Any combination of digits, letters, or hyphens.
 
 var BUILDIDENTIFIER = R++
-src[BUILDIDENTIFIER] = '[0-9A-Za-z-]+'
+src[BUILDIDENTIFIER] = LETTERDASHNUMBER + '+'
 
 // ## Build Metadata
 // Plus sign, followed by one or more period-separated build metadata
@@ -20515,6 +20579,7 @@ src[LONETILDE] = '(?:~>?)'
 var TILDETRIM = R++
 src[TILDETRIM] = '(\\s*)' + src[LONETILDE] + '\\s+'
 re[TILDETRIM] = new RegExp(src[TILDETRIM], 'g')
+safeRe[TILDETRIM] = new RegExp(makeSafeRe(src[TILDETRIM]), 'g')
 var tildeTrimReplace = '$1~'
 
 var TILDE = R++
@@ -20530,6 +20595,7 @@ src[LONECARET] = '(?:\\^)'
 var CARETTRIM = R++
 src[CARETTRIM] = '(\\s*)' + src[LONECARET] + '\\s+'
 re[CARETTRIM] = new RegExp(src[CARETTRIM], 'g')
+safeRe[CARETTRIM] = new RegExp(makeSafeRe(src[CARETTRIM]), 'g')
 var caretTrimReplace = '$1^'
 
 var CARET = R++
@@ -20551,6 +20617,7 @@ src[COMPARATORTRIM] = '(\\s*)' + src[GTLT] +
 
 // this one has to use the /g flag
 re[COMPARATORTRIM] = new RegExp(src[COMPARATORTRIM], 'g')
+safeRe[COMPARATORTRIM] = new RegExp(makeSafeRe(src[COMPARATORTRIM]), 'g')
 var comparatorTrimReplace = '$1$2$3'
 
 // Something like `1.2.3 - 1.2.4`
@@ -20579,6 +20646,14 @@ for (var i = 0; i < R; i++) {
   debug(i, src[i])
   if (!re[i]) {
     re[i] = new RegExp(src[i])
+
+    // Replace all greedy whitespace to prevent regex dos issues. These regex are
+    // used internally via the safeRe object since all inputs in this library get
+    // normalized first to trim and collapse all extra whitespace. The original
+    // regexes are exported for userland consumption and lower level usage. A
+    // future breaking change could export the safer regex only with a note that
+    // all input should have extra whitespace removed.
+    safeRe[i] = new RegExp(makeSafeRe(src[i]))
   }
 }
 
@@ -20603,7 +20678,7 @@ function parse (version, options) {
     return null
   }
 
-  var r = options.loose ? re[LOOSE] : re[FULL]
+  var r = options.loose ? safeRe[LOOSE] : safeRe[FULL]
   if (!r.test(version)) {
     return null
   }
@@ -20658,7 +20733,7 @@ function SemVer (version, options) {
   this.options = options
   this.loose = !!options.loose
 
-  var m = version.trim().match(options.loose ? re[LOOSE] : re[FULL])
+  var m = version.trim().match(options.loose ? safeRe[LOOSE] : safeRe[FULL])
 
   if (!m) {
     throw new TypeError('Invalid Version: ' + version)
@@ -21072,6 +21147,7 @@ function Comparator (comp, options) {
     return new Comparator(comp, options)
   }
 
+  comp = comp.trim().split(/\s+/).join(' ')
   debug('comparator', comp, options)
   this.options = options
   this.loose = !!options.loose
@@ -21088,7 +21164,7 @@ function Comparator (comp, options) {
 
 var ANY = {}
 Comparator.prototype.parse = function (comp) {
-  var r = this.options.loose ? re[COMPARATORLOOSE] : re[COMPARATOR]
+  var r = this.options.loose ? safeRe[COMPARATORLOOSE] : safeRe[COMPARATOR]
   var m = comp.match(r)
 
   if (!m) {
@@ -21202,9 +21278,16 @@ function Range (range, options) {
   this.loose = !!options.loose
   this.includePrerelease = !!options.includePrerelease
 
-  // First, split based on boolean or ||
+  // First reduce all whitespace as much as possible so we do not have to rely
+  // on potentially slow regexes like \s*. This is then stored and used for
+  // future error messages as well.
   this.raw = range
-  this.set = range.split(/\s*\|\|\s*/).map(function (range) {
+    .trim()
+    .split(/\s+/)
+    .join(' ')
+
+  // First, split based on boolean or ||
+  this.set = this.raw.split('||').map(function (range) {
     return this.parseRange(range.trim())
   }, this).filter(function (c) {
     // throw out any that are not relevant for whatever reason
@@ -21212,7 +21295,7 @@ function Range (range, options) {
   })
 
   if (!this.set.length) {
-    throw new TypeError('Invalid SemVer Range: ' + range)
+    throw new TypeError('Invalid SemVer Range: ' + this.raw)
   }
 
   this.format()
@@ -21231,28 +21314,23 @@ Range.prototype.toString = function () {
 
 Range.prototype.parseRange = function (range) {
   var loose = this.options.loose
-  range = range.trim()
   // `1.2.3 - 1.2.4` => `>=1.2.3 <=1.2.4`
-  var hr = loose ? re[HYPHENRANGELOOSE] : re[HYPHENRANGE]
+  var hr = loose ? safeRe[HYPHENRANGELOOSE] : safeRe[HYPHENRANGE]
   range = range.replace(hr, hyphenReplace)
   debug('hyphen replace', range)
   // `> 1.2.3 < 1.2.5` => `>1.2.3 <1.2.5`
-  range = range.replace(re[COMPARATORTRIM], comparatorTrimReplace)
-  debug('comparator trim', range, re[COMPARATORTRIM])
+  range = range.replace(safeRe[COMPARATORTRIM], comparatorTrimReplace)
+  debug('comparator trim', range, safeRe[COMPARATORTRIM])
 
   // `~ 1.2.3` => `~1.2.3`
-  range = range.replace(re[TILDETRIM], tildeTrimReplace)
+  range = range.replace(safeRe[TILDETRIM], tildeTrimReplace)
 
   // `^ 1.2.3` => `^1.2.3`
-  range = range.replace(re[CARETTRIM], caretTrimReplace)
-
-  // normalize spaces
-  range = range.split(/\s+/).join(' ')
+  range = range.replace(safeRe[CARETTRIM], caretTrimReplace)
 
   // At this point, the range is completely trimmed and
   // ready to be split into comparators.
-
-  var compRe = loose ? re[COMPARATORLOOSE] : re[COMPARATOR]
+  var compRe = loose ? safeRe[COMPARATORLOOSE] : safeRe[COMPARATOR]
   var set = range.split(' ').map(function (comp) {
     return parseComparator(comp, this.options)
   }, this).join(' ').split(/\s+/)
@@ -21328,7 +21406,7 @@ function replaceTildes (comp, options) {
 }
 
 function replaceTilde (comp, options) {
-  var r = options.loose ? re[TILDELOOSE] : re[TILDE]
+  var r = options.loose ? safeRe[TILDELOOSE] : safeRe[TILDE]
   return comp.replace(r, function (_, M, m, p, pr) {
     debug('tilde', comp, _, M, m, p, pr)
     var ret
@@ -21369,7 +21447,7 @@ function replaceCarets (comp, options) {
 
 function replaceCaret (comp, options) {
   debug('caret', comp, options)
-  var r = options.loose ? re[CARETLOOSE] : re[CARET]
+  var r = options.loose ? safeRe[CARETLOOSE] : safeRe[CARET]
   return comp.replace(r, function (_, M, m, p, pr) {
     debug('caret', comp, _, M, m, p, pr)
     var ret
@@ -21428,7 +21506,7 @@ function replaceXRanges (comp, options) {
 
 function replaceXRange (comp, options) {
   comp = comp.trim()
-  var r = options.loose ? re[XRANGELOOSE] : re[XRANGE]
+  var r = options.loose ? safeRe[XRANGELOOSE] : safeRe[XRANGE]
   return comp.replace(r, function (ret, gtlt, M, m, p, pr) {
     debug('xRange', comp, ret, gtlt, M, m, p, pr)
     var xM = isX(M)
@@ -21498,10 +21576,10 @@ function replaceXRange (comp, options) {
 function replaceStars (comp, options) {
   debug('replaceStars', comp, options)
   // Looseness is ignored here.  star is always as loose as it gets!
-  return comp.trim().replace(re[STAR], '')
+  return comp.trim().replace(safeRe[STAR], '')
 }
 
-// This function is passed to string.replace(re[HYPHENRANGE])
+// This function is passed to string.replace(safeRe[HYPHENRANGE])
 // M, m, patch, prerelease, build
 // 1.2 - 3.4.5 => >=1.2.0 <=3.4.5
 // 1.2.3 - 3.4 => >=1.2.0 <3.5.0 Any 3.4.x will do
@@ -21812,7 +21890,7 @@ function coerce (version) {
     return null
   }
 
-  var match = version.match(re[COERCE])
+  var match = version.match(safeRe[COERCE])
 
   if (match == null) {
     return null
