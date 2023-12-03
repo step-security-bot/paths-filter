@@ -1,5 +1,7 @@
 # StepSecurity Maintained Action - Paths Changes Filter
 
+Forked from: [dorny/paths-filter](https://github.com/dorny/paths-filter)
+
 [GitHub Action](https://github.com/features/actions) that enables conditional execution of workflow steps and jobs, based on the files modified by pull request, on a feature
 branch, or by the recently pushed commits.
 
